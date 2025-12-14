@@ -14,9 +14,10 @@ int minus(int a, int b) {
 
 int main() {
   std::cout << hco::Id::get_global_id() << std::endl;
-  auto c1 = hco::Coroutine::create(add, 1, 2);
-  auto c2 = hco::Coroutine::create(minus, 0, 1);
-  auto f = hco::Coroutine::start();
-  
-  f.get();
+  auto task1 = hco::Coroutine::create_task(add, 1, 2);
+  auto task2 = hco::Coroutine::create_task(minus, 0, 1);
+  auto future_list = hco::Coroutine::start({task1, task2});
+  for (auto& future: future_list) {
+    future.get();
+  }
 }

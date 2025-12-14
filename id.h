@@ -1,3 +1,6 @@
+#ifndef ID_H_
+#define ID_H_
+
 #include <cstddef>
 #include <atomic>
 
@@ -37,3 +40,5 @@ struct std::hash<hco::Id> {
     return std::hash<std::size_t>{}(id.get_id());  // 需要将get_id()改为const
   }
 };
+
+#endif

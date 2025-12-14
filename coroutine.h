@@ -20,6 +20,8 @@ enum class Status {
   RUNNING
 };
 
+struct ThreadResources;
+
 class Coroutine : public std::enable_shared_from_this<Coroutine> {
  public:
   using task_t = std::function<void()>;
@@ -27,20 +29,17 @@ class Coroutine : public std::enable_shared_from_this<Coroutine> {
   ~Coroutine() = default;
 
   // 开始运行所有任务
-  static std::future<void> start();
-  static void main_func();
+  static std::vector<std::future<void>> start(const std::vector<std::shared_ptr<Coroutine>>& task_list);
 
   template<typename F, typename... Args>
-  static std::shared_ptr<Coroutine> create(F&& task, Args&&... args) {
+  static std::shared_ptr<Coroutine> create_task(F&& task, Args&&... args) {
     auto wrapper = [task_func = std::decay_t<F>(std::forward<F>(task)),
                     ...args_copy = std::decay_t<Args>(std::forward<Args>(args))]() mutable {
       task_func(args_copy...);
     };
     // 不使用make_shared，因为其不能访问private的构造函数
     auto raw_ptr = new Coroutine(wrapper);
-    auto co = std::shared_ptr<Coroutine>(raw_ptr);
-    coroutine_map.emplace(co->id_, co);
-    return co;
+    return std::shared_ptr<Coroutine>(raw_ptr);
   }
 
   // 暂停当前协程，切换为另一个协程
@@ -51,25 +50,38 @@ class Coroutine : public std::enable_shared_from_this<Coroutine> {
   size_t get_id() const { return id_.get_id(); }
   
  private:
-  Coroutine(task_t task);
-  Coroutine(task_t task, Id id);
+  friend struct ThreadResources;
+  // 用于创建非main的普通协程
+  Coroutine(task_t task, std::shared_ptr<ThreadResources> thread_resources = nullptr);
+  // 调度器协程的构造函数：task为main
+  Coroutine(std::shared_ptr<ThreadResources> thread_resources = nullptr);
 
+  void set_thread_resources(std::shared_ptr<ThreadResources> thread_resources) {
+    thread_resources_ = thread_resources;
+  }
   void make_context();
   static constexpr std::size_t STACK_SIZE = 1024 * 1024;
   
   static void task_wrapper(void* coroutine);
+  void main_func();
 
-  // 正在运行协程的Id
-  static Id running_coroutine_id;
+  void init_main_task();
 
-  // <id, co> 所有的协程
-  static std::unordered_map<Id, std::shared_ptr<Coroutine>> coroutine_map;
-
+  
   Id id_;
   Status status_;
-  task_t task_;
+  std::packaged_task<void()> task_;
   ucontext_t context_;
   std::aligned_storage_t<STACK_SIZE> stack_;
+
+  std::shared_ptr<ThreadResources> thread_resources_;
+};
+
+struct ThreadResources {
+  Id running_coroutine_id_{Id::get_invalid_id()};
+  std::unordered_map<Id, std::shared_ptr<Coroutine>> co_map_;
+  using CoroutineMap = std::unordered_map<Id, std::shared_ptr<Coroutine>>;
+  ThreadResources() = default;
 };
 
 }

@@ -6,7 +6,7 @@ void CACS_init(void** rsp, void(*entry)(), void* self) {
   asm volatile (R"(
     mov %%rsp, %%rax # 保存当前栈地址
     mov (%0), %%rsp  # 切换为协程栈
-    push %2          # 把param存入协程栈中 8B
+    push %2          # 把self存入协程栈中 8B
     push %1          # 把entry作为协程的返回地址存入协程栈中 8B
     mov %%rsp, (%0)    
     mov %%rax, %%rsp # 切换回原来的栈

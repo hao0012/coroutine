@@ -71,8 +71,8 @@ class CACSContext : public ContextPolicy {
 
   ~CACSContext() override = default;
  private:
-  static void task_wrapper() {
-    void *context, *real_rsp;
+  static void task_wrapper(CACSContext *context) {
+    void *real_rsp;
     
     asm volatile (
       R"(

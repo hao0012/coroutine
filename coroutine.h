@@ -49,6 +49,8 @@ class Coroutine : public std::enable_shared_from_this<Coroutine<ContextPolicy>> 
   void yield();
   // 恢复当前协程
   void resume();
+  // Awaitable 协议用：设 WAITING 后 yield
+  void set_waiting_and_yield();
 
   coroutine_handle<ContextPolicy> handle() { return coroutine_handle<ContextPolicy>(this); }
   bool is_done() const { return status_ == Status::DEAD; }
@@ -183,7 +185,7 @@ template<typename ContextPolicy>
 void Coroutine<ContextPolicy>::yield() {
   assert(thread_resources_->running_coroutine_id_ == id_);
  
-  assert(status_ == Status::RUNNING || status_ == Status::DEAD);
+  assert(status_ == Status::RUNNING || status_ == Status::DEAD || status_ == Status::WAITING);
   if (status_ == Status::RUNNING) {
     status_ = Status::READY;
   }
@@ -204,6 +206,13 @@ void Coroutine<ContextPolicy>::yield() {
   thread_resources_->running_coroutine_id_ = next_id;
   
   context_->swap(*next_co->context_);
+}
+
+template<typename ContextPolicy>
+void Coroutine<ContextPolicy>::set_waiting_and_yield() {
+  assert(status_ == Status::RUNNING);
+  status_ = Status::WAITING;
+  yield();
 }
 
 template<typename ContextPolicy>

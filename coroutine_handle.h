@@ -16,6 +16,7 @@ class coroutine_handle {
   void resume() const { if (co_) co_->resume(); }
   bool done() const { return co_ == nullptr || co_->is_done(); }
   explicit operator bool() const { return co_ != nullptr; }
+  void suspend() const { if (co_) co_->set_waiting_and_yield(); }
 
   void* address() const { return co_; }
   static coroutine_handle from_address(void* addr) {
@@ -28,6 +29,7 @@ class coroutine_handle {
   explicit coroutine_handle(Coroutine<ContextPolicy>* co) : co_(co) {}
 
  private:
+  friend class Coroutine<ContextPolicy>;
   Coroutine<ContextPolicy>* co_;
 };
 

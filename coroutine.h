@@ -3,11 +3,11 @@
 
 #include <cstddef>
 #include <functional>
-#include <iostream>
+#include <chrono>
+#include <thread>
 #include <memory>
 #include <unordered_map>
 #include <type_traits>
-#include <ucontext.h>
 #include <future>
 #include <cassert>
 #include "context_policy.h"
@@ -72,7 +72,6 @@ class Coroutine : public std::enable_shared_from_this<Coroutine<ContextPolicy>> 
   static void task_wrapper(void* coroutine);
   void main_func();
 
-  void init_main_task();
 
   
   Id id_;
@@ -159,8 +158,11 @@ void Coroutine<ContextPolicy>::task_wrapper(void* coroutine) {
 template<typename ContextPolicy>
 void Coroutine<ContextPolicy>::yield() {
   assert(thread_resources_->running_coroutine_id_ == id_);
-  // 在yield之前修改状态
-  assert(status_ != Status::RUNNING);
+ 
+  assert(status_ == Status::RUNNING || status_ == Status::DEAD);
+  if (status_ == Status::RUNNING) {
+    status_ = Status::READY;
+  }
 
   auto next_id = Id::get_invalid_id();
   for (auto& [id, co] : thread_resources_->co_map_) {
@@ -169,7 +171,9 @@ void Coroutine<ContextPolicy>::yield() {
       break;
     }
   }
-  assert(next_id.is_valid());
+  if(not next_id.is_valid()) {
+    next_id = Id::get_main_co_id();
+  }
   
   const auto& next_co = thread_resources_->co_map_[next_id];
   next_co->status_ = Status::RUNNING;
@@ -189,14 +193,13 @@ void Coroutine<ContextPolicy>::resume() {
   status_ = Status::RUNNING;
   running_id = id_;
 
-  context_->swap(*running_co->context_);
+  running_co->context_->swap(*context_);
 }
 
 template<typename ContextPolicy>
 void Coroutine<ContextPolicy>::make_context() {
   context_ = std::make_unique<ContextPolicy>();
-  context_->init_task(task_wrapper, this);
-  context_->init();
+  context_->init(task_wrapper, this);
 }
 
 template<typename ContextPolicy>

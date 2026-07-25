@@ -13,6 +13,7 @@
 #include "context_policy.h"
 
 #include "id.h"
+#include "coroutine_handle.h"
 
 namespace hco {
 
@@ -49,16 +50,21 @@ class Coroutine : public std::enable_shared_from_this<Coroutine<ContextPolicy>> 
   // 恢复当前协程
   void resume();
 
+  coroutine_handle<ContextPolicy> handle() { return coroutine_handle<ContextPolicy>(this); }
+  bool is_done() const { return status_ == Status::DEAD; }
   size_t get_id() const { return id_.get_id(); }
   
- private:
   struct ThreadResources {
     Id running_coroutine_id_{Id::get_invalid_id()};
     std::unordered_map<Id, std::shared_ptr<Coroutine<ContextPolicy>>> co_map_;
     using CoroutineMap = std::unordered_map<Id, std::shared_ptr<Coroutine<ContextPolicy>>>;
-    ThreadResources() = default;
+    static thread_local ThreadResources* current_tr_;
+
+    ThreadResources()  { current_tr_ = this; }
+    ~ThreadResources() { current_tr_ = nullptr; }
   };
 
+ private:
   // 用于创建非main的普通协程
   Coroutine(task_t task, std::shared_ptr<ThreadResources> thread_resources = nullptr);
   // 调度器协程的构造函数：task为main
@@ -82,6 +88,22 @@ class Coroutine : public std::enable_shared_from_this<Coroutine<ContextPolicy>> 
   std::shared_ptr<ThreadResources> thread_resources_;
 };
 
+// ========== thread_local 定义 ==========
+template<typename ContextPolicy>
+thread_local typename Coroutine<ContextPolicy>::ThreadResources*
+    Coroutine<ContextPolicy>::ThreadResources::current_tr_ = nullptr;
+
+// ========== this_coroutine ==========
+template<typename ContextPolicy>
+coroutine_handle<ContextPolicy> this_coroutine() {
+  using TR = typename Coroutine<ContextPolicy>::ThreadResources;
+  auto* tr = TR::current_tr_;
+  if (!tr) return {};
+  auto it = tr->co_map_.find(tr->running_coroutine_id_);
+  if (it == tr->co_map_.end()) return {};
+  return coroutine_handle<ContextPolicy>(it->second.get());
+}
+
 template<typename ContextPolicy>
 std::vector<std::future<void>> Coroutine<ContextPolicy>::start(const std::vector<std::shared_ptr<Coroutine>>& co_list) {
   std::vector<std::future<void>> future_list;
@@ -89,19 +111,21 @@ std::vector<std::future<void>> Coroutine<ContextPolicy>::start(const std::vector
     future_list.emplace_back(co->task_.get_future());
   }
 
-  auto thread_resources = std::make_shared<ThreadResources>();
-  for (auto co : co_list) {
-    co->set_thread_resources(thread_resources);
+  auto task = [co_list]() {
+    auto thread_resources = std::make_shared<ThreadResources>();
+    for (auto co : co_list) {
+      co->set_thread_resources(thread_resources);
+      thread_resources->co_map_.emplace(co->id_, co);
+    }
+
+    // 在std::make_shared内部无法访问private的构造函数，所以用下面的方式创建Coroutine
+    auto raw_ptr = new Coroutine(thread_resources);
+    auto co = std::shared_ptr<Coroutine>(raw_ptr);
     thread_resources->co_map_.emplace(co->id_, co);
-  }
 
-  // 在std::make_shared内部无法访问private的构造函数，所以用下面的方式创建Coroutine
-  auto raw_ptr = new Coroutine(thread_resources);
-  auto co = std::shared_ptr<Coroutine>(raw_ptr);
-  thread_resources->co_map_.emplace(co->id_, co);
-
-  auto task = [=]() { co->task_(); };
-  std::thread(task).detach();
+    co->task_();
+  };
+  std::thread(std::move(task)).detach();
   return future_list;
 }
 
@@ -216,4 +240,4 @@ Coroutine<ContextPolicy>::Coroutine(std::shared_ptr<ThreadResources> thread_reso
 
 }
 
-#endif // COROUTINE_H_ 
+#endif // COROUTINE_H_

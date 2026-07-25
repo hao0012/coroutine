@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <ucontext.h>
 #include <cassert>
+#include <type_traits>
 
 #include "cacs.h"
 

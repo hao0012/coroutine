@@ -76,26 +76,20 @@ class Coroutine : public std::enable_shared_from_this<Coroutine<ContextPolicy>> 
     thread_resources_ = thread_resources;
   }
   void make_context();
-  
   static void task_wrapper(void* coroutine);
   void main_func();
 
-
-  
   Id id_;
   Status status_;
   std::packaged_task<void()> task_;
   std::unique_ptr<ContextPolicy> context_;
-
   std::shared_ptr<ThreadResources> thread_resources_;
 };
 
-// ========== thread_local 定义 ==========
 template<typename ContextPolicy>
 thread_local typename Coroutine<ContextPolicy>::ThreadResources*
     Coroutine<ContextPolicy>::ThreadResources::current_tr_ = nullptr;
 
-// ========== this_coroutine ==========
 template<typename ContextPolicy>
 coroutine_handle<ContextPolicy> this_coroutine() {
   using TR = typename Coroutine<ContextPolicy>::ThreadResources;
@@ -105,6 +99,8 @@ coroutine_handle<ContextPolicy> this_coroutine() {
   if (it == tr->co_map_.end()) return {};
   return coroutine_handle<ContextPolicy>(it->second.get());
 }
+
+// ========== Coroutine 实现 ==========
 
 template<typename ContextPolicy>
 void Coroutine<ContextPolicy>::start(const std::vector<std::shared_ptr<Coroutine>>& co_list) {
@@ -157,7 +153,6 @@ void Coroutine<ContextPolicy>::main_func() {
     current_co->status_ = Status::READY;
     running_id = next_co->id_;
     next_co->status_ = Status::RUNNING;
-    
     current_co->context_->swap(*next_co->context_);
     
     // 回到当前协程
@@ -169,7 +164,7 @@ void Coroutine<ContextPolicy>::main_func() {
 
 template<typename ContextPolicy>
 void Coroutine<ContextPolicy>::task_wrapper(void* coroutine) {
-  auto co = reinterpret_cast<Coroutine *>(coroutine);
+  auto co = reinterpret_cast<Coroutine*>(coroutine);
   co->task_();
   co->status_ = Status::DEAD;
   co->yield();
@@ -178,7 +173,6 @@ void Coroutine<ContextPolicy>::task_wrapper(void* coroutine) {
 template<typename ContextPolicy>
 void Coroutine<ContextPolicy>::yield() {
   assert(thread_resources_->running_coroutine_id_ == id_);
- 
   assert(status_ == Status::RUNNING || status_ == Status::DEAD || status_ == Status::WAITING);
   if (status_ == Status::RUNNING) {
     status_ = Status::READY;
@@ -191,14 +185,12 @@ void Coroutine<ContextPolicy>::yield() {
       break;
     }
   }
-  if(not next_id.is_valid()) {
+  if (not next_id.is_valid()) {
     next_id = Id::get_main_co_id();
   }
-  
   const auto& next_co = thread_resources_->co_map_[next_id];
   next_co->status_ = Status::RUNNING;
   thread_resources_->running_coroutine_id_ = next_id;
-  
   context_->swap(*next_co->context_);
 }
 
@@ -219,7 +211,6 @@ void Coroutine<ContextPolicy>::resume() {
 
   status_ = Status::RUNNING;
   running_id = id_;
-
   running_co->context_->swap(*context_);
 }
 
@@ -231,16 +222,21 @@ void Coroutine<ContextPolicy>::make_context() {
 
 template<typename ContextPolicy>
 Coroutine<ContextPolicy>::Coroutine(task_t task, std::shared_ptr<ThreadResources> thread_resources)
-: status_(Status::READY), task_(std::packaged_task<void()>(task)), thread_resources_(thread_resources) {
+    : status_(Status::READY),
+      task_(std::packaged_task<void()>(task)),
+      thread_resources_(thread_resources) {
   make_context();
 }
 
 template<typename ContextPolicy>
 Coroutine<ContextPolicy>::Coroutine(std::shared_ptr<ThreadResources> thread_resources)
-: id_(Id::get_main_co_id()), status_(Status::READY), task_(std::packaged_task<void()>([this]() { this->main_func(); })), thread_resources_(thread_resources) {
+    : id_(Id::get_main_co_id()),
+      status_(Status::READY),
+      task_(std::packaged_task<void()>([this]() { this->main_func(); })),
+      thread_resources_(thread_resources) {
   make_context();
 }
 
-}
+}  // namespace hco
 
-#endif // COROUTINE_H_
+#endif  // COROUTINE_H_

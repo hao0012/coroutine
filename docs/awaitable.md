@@ -79,3 +79,52 @@ decltype(auto) await(Awaitable&& a) {
 
 - `suspend_always::resume()` 必须在协程线程内调用（CACS 上下文切换假设单线程）。跨线程需要事件循环 marshaling。
 - 暂不支持 `await_suspend` 返回 `coroutine_handle` 的对称转移。
+
+## 对称转移
+
+当 `await_suspend` 返回 `coroutine_handle`（而非 `void`）时，`await()` 不走调度器，直接从当前协程 swap 到目标协程。
+
+```
+普通路径:  A → suspend → scheduler → pick B → swap    (2 次上下文切换)
+对称转移:  A → swap_to(B)                               (1 次上下文切换)
+```
+
+### 用法
+
+```cpp
+template<typename CP>
+struct yield_to_t {
+    coroutine_handle<CP> target;
+    bool await_ready() const { return false; }
+    coroutine_handle<CP> await_suspend(coroutine_handle<CP>) { return target; }
+    void await_resume() const {}
+};
+
+// 协程 A 直接跳到 B：
+hco::await<CoCP>(hco::yield_to_t<CoCP>{B_handle});
+```
+
+### 实现
+
+`await()` 用 `if constexpr` 检测 `await_suspend` 返回类型：
+
+```cpp
+using suspend_result = decltype(a.await_suspend(h));
+if constexpr (std::is_void_v<suspend_result>) {
+    a.await_suspend(h);
+    h.suspend();         // 走调度器
+} else {
+    auto next = a.await_suspend(h);
+    h.swap_to(next);     // 对称转移
+}
+```
+
+`swap_to()` 调用 `Coroutine::symmetric_swap_to(target)`：
+- 当前协程 → `WAITING`
+- 更新 `running_coroutine_id_` 为目标 id
+- `context_->swap(*target.context_)`，直接跳转
+
+### 限制
+
+- 对称转移后源协程进入 `WAITING`，需要有人显式 `resume` 才能继续。`await_suspend` 通常应同时存储源协程的 handle
+- 跨协程链时每步都是 WAITING，最终需要事件循环或另一个协程逐层唤醒

@@ -7,7 +7,6 @@ namespace hco {
 
 template<typename ContextPolicy> class Coroutine;
 
-// 非拥有型协程句柄，提供和 C++20 std::coroutine_handle 类似的 API
 template<typename ContextPolicy = UContext>
 class coroutine_handle {
  public:
@@ -17,6 +16,9 @@ class coroutine_handle {
   bool done() const { return co_ == nullptr || co_->is_done(); }
   explicit operator bool() const { return co_ != nullptr; }
   void suspend() const { if (co_) co_->set_waiting_and_yield(); }
+  void swap_to(coroutine_handle target) const {
+    if (co_ && target.co_) co_->symmetric_swap_to(*target.co_);
+  }
 
   void* address() const { return co_; }
   static coroutine_handle from_address(void* addr) {

@@ -5,8 +5,6 @@
 
 namespace hco {
 
-// ========== 标准 Awaitable ==========
-
 template<typename CP>
 struct suspend_always_t {
   bool await_ready() const { return false; }
@@ -24,16 +22,30 @@ struct suspend_never_t {
   void await_resume() const {}
 };
 
-// ========== await 函数模板 ==========
 template<typename CP, typename Awaitable>
 decltype(auto) await(Awaitable&& a) {
   if (!a.await_ready()) {
     auto h = this_coroutine<CP>();
-    a.await_suspend(h);
-    h.suspend();
+    using suspend_result = decltype(a.await_suspend(h));
+    if constexpr (std::is_void_v<suspend_result>) {
+      a.await_suspend(h);
+      h.suspend();
+    } else {
+      auto next = a.await_suspend(h);
+      h.swap_to(next);
+    }
   }
   return a.await_resume();
 }
+
+// yield_to: 对称转移——await_suspend 返回目标 handle，直接 swap 过去
+template<typename CP>
+struct yield_to_t {
+  coroutine_handle<CP> target;
+  bool await_ready() const { return false; }
+  coroutine_handle<CP> await_suspend(coroutine_handle<CP>) { return target; }
+  void await_resume() const {}
+};
 
 }  // namespace hco
 

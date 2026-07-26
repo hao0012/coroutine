@@ -32,7 +32,7 @@ class Coroutine : public std::enable_shared_from_this<Coroutine<ContextPolicy>> 
   ~Coroutine() = default;
 
   // 开始运行所有任务
-  static std::vector<std::future<void>> start(const std::vector<std::shared_ptr<Coroutine>>& task_list);
+  static void start(const std::vector<std::shared_ptr<Coroutine>>& task_list);
 
   template<typename F, typename... Args>
   static std::shared_ptr<Coroutine> create_task(F&& task, Args&&... args) {
@@ -107,12 +107,7 @@ coroutine_handle<ContextPolicy> this_coroutine() {
 }
 
 template<typename ContextPolicy>
-std::vector<std::future<void>> Coroutine<ContextPolicy>::start(const std::vector<std::shared_ptr<Coroutine>>& co_list) {
-  std::vector<std::future<void>> future_list;
-  for (const auto& co : co_list) {
-    future_list.emplace_back(co->task_.get_future());
-  }
-
+void Coroutine<ContextPolicy>::start(const std::vector<std::shared_ptr<Coroutine>>& co_list) {
   auto task = [co_list]() {
     auto thread_resources = std::make_shared<ThreadResources>();
     for (auto co : co_list) {
@@ -128,7 +123,6 @@ std::vector<std::future<void>> Coroutine<ContextPolicy>::start(const std::vector
     co->task_();
   };
   std::thread(std::move(task)).detach();
-  return future_list;
 }
 
 template<typename ContextPolicy>
